@@ -8,266 +8,256 @@ const {
 } = require('discord.js');
 
 const fs = require('fs');
+const express = require('express');
+const app = express();
+app.use(express.json());
 
-const TOKEN = process.env.TOKEN;
-
-// APPLICATION ID
-const CLIENT_ID = '1508813594924683384';
-
-// LOGS CHANNEL ID
-const LOG_CHANNEL_ID = '1509146646414360616';
-
-// REDEEM CHANNEL ID
-const REDEEM_CHANNEL_ID = '1509120103118012486';
+const config = require('./config.json');
 
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.DirectMessages
-    ]
+    intents: [GatewayIntentBits.Guilds]
 });
 
-client.once('clientReady', async () => {
+// ===== LOAD USED KEYS =====
+let usedKeys = {};
+if (fs.existsSync('./used.json')) {
+    usedKeys = JSON.parse(fs.readFileSync('./used.json'));
+}
+
+// ===== PRODUCTS =====
+let products = {
+    combo: { stock: "products/combo.txt", keys: "keys/combo.txt" },
+    premium: { stock: "products/premium.txt", keys: "keys/premium.txt" },
+    cheap: { stock: "products/cheap.txt", keys: "keys/cheap.txt" },
+    "5k": { stock: "products/5k.txt", keys: "keys/5k.txt" },
+    "21k": { stock: "products/21k.txt", keys: "keys/21k.txt" },
+    "31k": { stock: "products/31k.txt", keys: "keys/31k.txt" },
+    "51k": { stock: "products/51k.txt", keys: "keys/51k.txt" },
+    "100k": { stock: "products/100k.txt", keys: "keys/100k.txt" },
+    "100kup": { stock: "products/100kup.txt", keys: "keys/100kup.txt" }
+};
+
+// ===== READY =====
+client.once('ready', async () => {
 
     console.log(`Logged in as ${client.user.tag}`);
 
-    client.user.setPresence({
-        activities: [{
-            name: 'Lil Pump Stock',
-            type: 3
-        }],
-        status: 'online'
-    });
-
     const commands = [
+
         new SlashCommandBuilder()
             .setName('redeem')
-            .setDescription('Redeem your key')
-            .addStringOption(option =>
-                option
-                    .setName('key')
-                    .setDescription('Enter your redeem key')
-                    .setRequired(true)
-            )
-    ].map(command => command.toJSON());
+            .setDescription('Redeem key')
+            .addStringOption(opt => opt.setName('key').setRequired(true))
+            .addStringOption(opt =>
+                opt.setName('product').setRequired(true)
+                    .addChoices(
+                        { name: 'Combo', value: 'combo' },
+                        { name: 'Premium', value: 'premium' },
+                        { name: 'Cheap', value: 'cheap' }
+                    )
+            ),
 
-    const rest = new REST({ version: '10' }).setToken(TOKEN);
+        new SlashCommandBuilder()
+            .setName('genkey')
+            .setDescription('Generate keys')
+            .addIntegerOption(opt => opt.setName('amount').setRequired(true))
+            .addStringOption(opt =>
+                opt.setName('product').setRequired(true)
+                    .addChoices(
+                        { name: 'Combo', value: 'combo' },
+                        { name: 'Premium', value: 'premium' },
+                        { name: 'Cheap', value: 'cheap' }
+                    )
+            ),
 
-    try {
+        new SlashCommandBuilder()
+            .setName('update')
+            .setDescription('Update dashboard')
 
-        await rest.put(
-            Routes.applicationCommands(CLIENT_ID),
-            { body: commands }
-        );
+    ].map(c => c.toJSON());
 
-        console.log('Slash command registered.');
+    const rest = new REST({ version: '10' }).setToken(config.TOKEN);
+    await rest.put(Routes.applicationCommands(config.CLIENT_ID), { body: commands });
 
-    } catch (error) {
-
-        console.error(error);
-
-    }
-
+    setInterval(updateDashboard, 30000);
 });
 
+// ===== WEBHOOK (NO SECRET CHECK) =====
+app.post('/webhook', (req, res) => {
+
+    const data = req.body;
+    const key = data.key || data.license_key || "NO_KEY";
+    const product = (data.product || "combo").toLowerCase();
+
+    let file = products[product]?.keys;
+    if (file) fs.appendFileSync(file, '\n' + key);
+
+    sendLog(new EmbedBuilder()
+        .setColor('#00ff99')
+        .setTitle('🛒 New Purchase')
+        .addFields(
+            { name: 'Product', value: product },
+            { name: 'Key', value: key }
+        )
+        .setTimestamp()
+    );
+
+    res.sendStatus(200);
+});
+
+// ===== DASHBOARD =====
+async function updateDashboard() {
+
+    let channel;
+    try {
+        channel = await client.channels.fetch(config.DASHBOARD_CHANNEL_ID);
+    } catch { return; }
+
+    let fields = [];
+
+    for (let name in products) {
+
+        let stockFile = products[name].stock;
+
+        if (!fs.existsSync(stockFile)) continue;
+
+        let stock = fs.readFileSync(stockFile, 'utf8').split('\n').filter(Boolean).length;
+        let sold = Object.values(usedKeys).filter(k => k.product === name).length;
+
+        let warn = stock <= 5 ? " ⚠️ LOW" : "";
+
+        fields.push({
+            name: `${name.toUpperCase()}${warn}`,
+            value: `Stock: ${stock}\nSold: ${sold}`
+        });
+    }
+
+    const embed = new EmbedBuilder()
+        .setColor('#0f172a')
+        .setTitle('🟢 STORE DASHBOARD')
+        .addFields(fields)
+        .setTimestamp();
+
+    if (!global.msg) {
+        global.msg = await channel.send({ embeds: [embed] });
+    } else {
+        await global.msg.edit({ embeds: [embed] });
+    }
+}
+
+// ===== LOG =====
+async function sendLog(embed) {
+    try {
+        const ch = await client.channels.fetch(config.LOG_CHANNEL_ID);
+        if (ch) await ch.send({ embeds: [embed] });
+    } catch {}
+}
+
+// ===== COMMANDS =====
 client.on('interactionCreate', async interaction => {
 
     if (!interaction.isChatInputCommand()) return;
 
-    if (interaction.commandName === 'redeem') {
+    const isOwner = interaction.user.id === config.OWNER_ID;
 
-        // ALLOW ONLY REDEEM CHANNEL OR BOT DMS
-        if (
-            interaction.channelId !== REDEEM_CHANNEL_ID &&
-            !interaction.channel.isDMBased()
-        ) {
+    // ===== GENKEY =====
+    if (interaction.commandName === 'genkey') {
 
-            return interaction.reply({
-                content:
-'❌ Wrong channel.\n\nPlease redeem your key here:\nhttps://discord.com/channels/1507954297290100887/1509120103118012486\n\nOr send the command in my DM.',
-                ephemeral: true
-            });
+        if (!isOwner) return interaction.reply({ content: '❌', ephemeral: true });
 
+        const amount = interaction.options.getInteger('amount');
+        const product = interaction.options.getString('product');
+
+        let keys = [];
+
+        for (let i = 0; i < amount; i++) {
+            let code = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+            let key = `SL-${product.toUpperCase()}-${code} → JOIN DISCORD TO REDEEM YOUR KEY → https://discord.gg/EkFXMfWCyW`;
+            keys.push(key);
         }
 
-        const key = interaction.options.getString('key');
+        fs.appendFileSync(products[product].keys, '\n' + keys.join('\n'));
 
-        const logChannel = await client.channels.fetch(LOG_CHANNEL_ID);
-
-        // READ KEYS
-        let keys = fs.readFileSync('./keys.txt', 'utf8')
-            .split('\n')
-            .map(k => k.trim())
-            .filter(Boolean);
-
-        // CREATE usedkeys.txt IF NOT EXIST
-        if (!fs.existsSync('./usedkeys.txt')) {
-            fs.writeFileSync('./usedkeys.txt', '');
-        }
-
-        let usedKeys = fs.readFileSync('./usedkeys.txt', 'utf8')
-            .split('\n')
-            .filter(Boolean);
-
-        // INVALID OR USED KEY
-        if (!keys.includes(key)) {
-
-            let originalUser = 'Unknown';
-            let originalID = 'Unknown';
-
-            const found = usedKeys.find(line => line.startsWith(`${key}|`));
-
-            if (found) {
-
-                const parts = found.split('|');
-
-                originalUser = parts[1];
-                originalID = parts[2];
-
-            }
-
-            const invalidEmbed = new EmbedBuilder()
-                .setTitle('❌ Invalid Redeem Attempt')
-                .addFields(
-                    {
-                        name: 'User Trying',
-                        value: interaction.user.tag
-                    },
-                    {
-                        name: 'Discord ID',
-                        value: interaction.user.id
-                    },
-                    {
-                        name: 'Key Tried',
-                        value: key
-                    },
-                    {
-                        name: 'Originally Redeemed By',
-                        value: originalUser
-                    },
-                    {
-                        name: 'Original Discord ID',
-                        value: originalID
-                    },
-                    {
-                        name: 'Key Result',
-                        value: 'Invalid or Already Used'
-                    }
-                )
-                .setThumbnail(interaction.user.displayAvatarURL())
-                .setTimestamp();
-
-            if (logChannel) {
-                logChannel.send({ embeds: [invalidEmbed] });
-            }
-
-            return interaction.reply({
-                content: '❌ Invalid or Used Key.',
-                ephemeral: true
-            });
-
-        }
-
-        // REMOVE USED KEY
-        keys = keys.filter(k => k !== key);
-
-        fs.writeFileSync('./keys.txt', keys.join('\n'));
-
-        // SAVE USED KEY INFO
-        fs.appendFileSync(
-            './usedkeys.txt',
-            `${key}|${interaction.user.tag}|${interaction.user.id}\n`
-        );
-
-        // READ COMBO STOCK
-        let combos = fs.readFileSync('./combo.txt', 'utf8')
-            .split('\n')
-            .filter(Boolean);
-
-        // CHECK STOCK
-        if (combos.length < 1000) {
-
-            return interaction.reply({
-                content: '❌ Not enough stock remaining.',
-                ephemeral: true
-            });
-
-        }
-
-        // GET FIRST 1000 LINES
-        const claimed = combos.slice(0, 1000);
-
-        // REMOVE CLAIMED LINES
-        combos = combos.slice(1000);
-
-        fs.writeFileSync('./combo.txt', combos.join('\n'));
-
-        // TEMP FILE NAME
-        const filename = `claim-${interaction.user.id}.txt`;
-
-        // CREATE TXT FILE
-        fs.writeFileSync(filename, claimed.join('\n'));
-
-        // SUCCESS EMBED
-        const successEmbed = new EmbedBuilder()
-            .setTitle('✅ New Redeem')
-            .addFields(
-                {
-                    name: 'Discord Username',
-                    value: interaction.user.tag
-                },
-                {
-                    name: 'Discord ID',
-                    value: interaction.user.id
-                },
-                {
-                    name: 'Redeemed Key',
-                    value: key
-                },
-                {
-                    name: 'Key Result',
-                    value: 'Used Successfully'
-                },
-                {
-                    name: 'Lines Sent',
-                    value: '1000'
-                },
-                {
-                    name: 'Remaining Stock',
-                    value: `${combos.length}`
-                }
-            )
-            .setThumbnail(interaction.user.displayAvatarURL())
-            .setTimestamp();
-
-        if (logChannel) {
-            logChannel.send({ embeds: [successEmbed] });
-        }
-
-        // SEND FILE
-        await interaction.reply({
-            content:
-`✅ Successfully Redeemed!
-
-📦 You received 1000 lines.
-
-Please vouch us here:
-https://discord.com/channels/1507954297290100887/1507964172250513498`,
-            files: [filename],
+        return interaction.reply({
+            embeds: [
+                new EmbedBuilder()
+                    .setColor('#0f172a')
+                    .setTitle('🔑 KEYS GENERATED')
+                    .setDescription(`Generated ${amount} keys for ${product}`)
+            ],
+            files: [{
+                attachment: Buffer.from(keys.join('\n')),
+                name: `${product}_keys.txt`
+            }],
             ephemeral: true
         });
+    }
 
-        // DELETE TEMP FILE
-        setTimeout(() => {
+    // ===== REDEEM =====
+    if (interaction.commandName === 'redeem') {
 
-            if (fs.existsSync(filename)) {
-                fs.unlinkSync(filename);
-            }
+        const key = interaction.options.getString('key');
+        const product = interaction.options.getString('product');
 
-        }, 5000);
+        let keys = fs.readFileSync(products[product].keys,'utf8').split('\n').filter(Boolean);
 
+        if (!keys.includes(key)) {
+            return interaction.reply({ content: '❌ Invalid key', ephemeral: true });
+        }
+
+        if (usedKeys[key]) {
+            return interaction.reply({ content: '❌ Key already used', ephemeral: true });
+        }
+
+        let stock = fs.readFileSync(products[product].stock,'utf8').split('\n').filter(Boolean);
+
+        if (stock.length < 1) {
+            return interaction.reply({ content: '❌ Out of stock', ephemeral: true });
+        }
+
+        const item = stock.shift();
+        fs.writeFileSync(products[product].stock, stock.join('\n'));
+
+        usedKeys[key] = {
+            userId: interaction.user.id,
+            product
+        };
+
+        fs.writeFileSync('./used.json', JSON.stringify(usedKeys, null, 2));
+
+        return interaction.reply({
+            embeds: [
+                new EmbedBuilder()
+                    .setColor('#0f172a')
+                    .setTitle('🎉 REDEEM SUCCESSFUL')
+                    .setDescription('Your product has been delivered.\n📩 Check file below.')
+                    .addFields(
+                        { name: '📦 Product', value: product.toUpperCase(), inline: true },
+                        { name: '🔐 Status', value: 'Locked', inline: true }
+                    )
+                    .addFields({
+                        name: '⭐ VOUCH US ON:',
+                        value: 'https://discord.com/channels/1507954297290100887/1507964172250513498'
+                    })
+                    .setTimestamp()
+            ],
+            files: [{
+                attachment: Buffer.from(item),
+                name: 'account.txt'
+            }],
+            ephemeral: true
+        });
+    }
+
+    // ===== UPDATE =====
+    if (interaction.commandName === 'update') {
+        if (!isOwner) return;
+        await updateDashboard();
+        interaction.reply({ content: '✅ Updated', ephemeral: true });
     }
 
 });
 
-client.login(TOKEN);
+client.login(config.TOKEN);
+app.listen(3000, () => console.log('Webhook ready'));
