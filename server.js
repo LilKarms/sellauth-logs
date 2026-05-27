@@ -18,13 +18,13 @@ const client = new Client({
     intents: [GatewayIntentBits.Guilds]
 });
 
-// ===== LOAD USED KEYS =====
+// LOAD USED KEYS
 let usedKeys = {};
 if (fs.existsSync('./used.json')) {
     usedKeys = JSON.parse(fs.readFileSync('./used.json'));
 }
 
-// ===== PRODUCTS =====
+// PRODUCTS
 let products = {
     combo: { stock: "products/combo.txt", keys: "keys/combo.txt" },
     premium: { stock: "products/premium.txt", keys: "keys/premium.txt" },
@@ -37,7 +37,7 @@ let products = {
     "100kup": { stock: "products/100kup.txt", keys: "keys/100kup.txt" }
 };
 
-// ===== READY =====
+// READY
 client.once('ready', async () => {
 
     console.log(`Logged in as ${client.user.tag}`);
@@ -82,30 +82,7 @@ client.once('ready', async () => {
     setInterval(updateDashboard, 30000);
 });
 
-// ===== WEBHOOK =====
-app.post('/webhook', (req, res) => {
-
-    const data = req.body;
-    const key = data.key || data.license_key || "NO_KEY";
-    const product = (data.product || "combo").toLowerCase();
-
-    let file = products[product]?.keys;
-    if (file) fs.appendFileSync(file, '\n' + key);
-
-    sendLog(new EmbedBuilder()
-        .setColor('#00ff99')
-        .setTitle('🛒 New Purchase')
-        .addFields(
-            { name: 'Product', value: product },
-            { name: 'Key', value: key }
-        )
-        .setTimestamp()
-    );
-
-    res.sendStatus(200);
-});
-
-// ===== DASHBOARD =====
+// DASHBOARD
 async function updateDashboard() {
 
     let channel;
@@ -145,22 +122,14 @@ async function updateDashboard() {
     }
 }
 
-// ===== LOG =====
-async function sendLog(embed) {
-    try {
-        const ch = await client.channels.fetch(config.LOG_CHANNEL_ID);
-        if (ch) await ch.send({ embeds: [embed] });
-    } catch {}
-}
-
-// ===== COMMANDS =====
+// COMMANDS
 client.on('interactionCreate', async interaction => {
 
     if (!interaction.isChatInputCommand()) return;
 
     const isOwner = interaction.user.id === config.OWNER_ID;
 
-    // GENKEY
+    // GENKEY (UPDATED SYSTEM)
     if (interaction.commandName === 'genkey') {
 
         if (!isOwner) return interaction.reply({ content: '❌', ephemeral: true });
@@ -168,16 +137,22 @@ client.on('interactionCreate', async interaction => {
         const amount = interaction.options.getInteger('amount');
         const product = interaction.options.getString('product');
 
-        let keys = [];
+        let rawKeys = [];
+        let styledKeys = [];
 
         for (let i = 0; i < amount; i++) {
-            let code = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-            let key = `SL-${product.toUpperCase()}-${code} → JOIN DISCORD TO REDEEM YOUR KEY → https://discord.gg/EkFXMfWCyW`;
-            keys.push(key);
+            let code = Math.random().toString(36).substring(2, 8).toUpperCase();
+            let cleanKey = `SL-${product.toUpperCase()}-${code}`;
+
+            rawKeys.push(cleanKey);
+
+            styledKeys.push(
+                `${cleanKey} → JOIN DISCORD TO REDEEM YOUR KEY → https://discord.gg/EkFXMfWCyW`
+            );
         }
 
-        fs.appendFileSync(products[product].keys, '\n' + keys.join('\n'));
+        fs.appendFileSync(products[product].keys, '\n' + rawKeys.join('\n'));
 
         return interaction.reply({
             embeds: [
@@ -187,8 +162,8 @@ client.on('interactionCreate', async interaction => {
                     .setDescription(`Generated ${amount} keys for ${product}`)
             ],
             files: [{
-                attachment: Buffer.from(keys.join('\n')),
-                name: `${product}_keys.txt`
+                attachment: Buffer.from(styledKeys.join('\n')),
+                name: `${product}_sellauth_keys.txt`
             }],
             ephemeral: true
         });
@@ -231,16 +206,7 @@ client.on('interactionCreate', async interaction => {
                 new EmbedBuilder()
                     .setColor('#0f172a')
                     .setTitle('🎉 REDEEM SUCCESSFUL')
-                    .setDescription('Your product has been delivered.\n📩 Check file below.')
-                    .addFields(
-                        { name: '📦 Product', value: product.toUpperCase(), inline: true },
-                        { name: '🔐 Status', value: 'Locked', inline: true }
-                    )
-                    .addFields({
-                        name: '⭐ VOUCH US ON:',
-                        value: 'https://discord.com/channels/1507954297290100887/1507964172250513498'
-                    })
-                    .setTimestamp()
+                    .setDescription('Check file below.')
             ],
             files: [{
                 attachment: Buffer.from(item),
