@@ -3,21 +3,25 @@ const {
     GatewayIntentBits,
     SlashCommandBuilder,
     Routes,
-    REST
+    REST,
+    EmbedBuilder
 } = require('discord.js');
 
 const fs = require('fs');
 
 const TOKEN = process.env.TOKEN;
 
-// PASTE YOUR APPLICATION ID HERE
+// APPLICATION ID
 const CLIENT_ID = '1508813594924683384';
+
+// PUT YOUR LOGS CHANNEL ID HERE
+const LOG_CHANNEL_ID = 'https://discord.com/api/webhooks/1509146664479359037/7v6UjwERZw6hpWzvLmPK2WZLUghMj-IfliDsezhOWCzd2MvcLm4aFf9vtp8sKVa2zZYs';
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds]
 });
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
 
     console.log(`Logged in as ${client.user.tag}`);
 
@@ -68,6 +72,8 @@ client.on('interactionCreate', async interaction => {
 
         const key = interaction.options.getString('key');
 
+        const logChannel = client.channels.cache.get(LOG_CHANNEL_ID);
+
         // READ KEYS
         let keys = fs.readFileSync('./keys.txt', 'utf8')
             .split('\n')
@@ -76,6 +82,33 @@ client.on('interactionCreate', async interaction => {
 
         // INVALID KEY
         if (!keys.includes(key)) {
+
+            const invalidEmbed = new EmbedBuilder()
+                .setTitle('❌ Invalid Redeem Attempt')
+                .addFields(
+                    {
+                        name: 'Discord Username',
+                        value: interaction.user.tag
+                    },
+                    {
+                        name: 'Discord ID',
+                        value: interaction.user.id
+                    },
+                    {
+                        name: 'Key Tried',
+                        value: key
+                    },
+                    {
+                        name: 'Key Result',
+                        value: 'Invalid or Used'
+                    }
+                )
+                .setThumbnail(interaction.user.displayAvatarURL())
+                .setTimestamp();
+
+            if (logChannel) {
+                logChannel.send({ embeds: [invalidEmbed] });
+            }
 
             return interaction.reply({
                 content: '❌ Invalid or Used Key.',
@@ -117,6 +150,42 @@ client.on('interactionCreate', async interaction => {
 
         // CREATE TXT FILE
         fs.writeFileSync(filename, claimed.join('\n'));
+
+        // SUCCESS LOG
+        const successEmbed = new EmbedBuilder()
+            .setTitle('✅ New Redeem')
+            .addFields(
+                {
+                    name: 'Discord Username',
+                    value: interaction.user.tag
+                },
+                {
+                    name: 'Discord ID',
+                    value: interaction.user.id
+                },
+                {
+                    name: 'Redeemed Key',
+                    value: key
+                },
+                {
+                    name: 'Key Result',
+                    value: 'Used Successfully'
+                },
+                {
+                    name: 'Lines Sent',
+                    value: '1000'
+                },
+                {
+                    name: 'Remaining Stock',
+                    value: `${combos.length}`
+                }
+            )
+            .setThumbnail(interaction.user.displayAvatarURL())
+            .setTimestamp();
+
+        if (logChannel) {
+            logChannel.send({ embeds: [successEmbed] });
+        }
 
         // SEND FILE
         await interaction.reply({
