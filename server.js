@@ -15,10 +15,16 @@ const TOKEN = process.env.TOKEN;
 const CLIENT_ID = '1508813594924683384';
 
 // LOGS CHANNEL ID
-const LOG_CHANNEL_ID = '1509146664479359037';
+const LOG_CHANNEL_ID = 'PUT_YOUR_LOGS_CHANNEL_ID_HERE';
+
+// REDEEM CHANNEL ID
+const REDEEM_CHANNEL_ID = '1509120103118012486';
 
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.DirectMessages
+    ]
 });
 
 client.once('clientReady', async () => {
@@ -69,6 +75,20 @@ client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
     if (interaction.commandName === 'redeem') {
+
+        // ALLOW ONLY REDEEM CHANNEL OR BOT DMS
+        if (
+            interaction.channelId !== REDEEM_CHANNEL_ID &&
+            !interaction.channel.isDMBased()
+        ) {
+
+            return interaction.reply({
+                content:
+'❌ Wrong channel.\n\nPlease redeem your key here:\nhttps://discord.com/channels/1507954297290100887/1509120103118012486\n\nOr send the command in my DM.',
+                ephemeral: true
+            });
+
+        }
 
         const key = interaction.options.getString('key');
 
