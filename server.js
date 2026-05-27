@@ -15,7 +15,7 @@ const TOKEN = process.env.TOKEN;
 const CLIENT_ID = '1508813594924683384';
 
 // PUT YOUR LOGS CHANNEL ID HERE
-const LOG_CHANNEL_ID = 'https://discord.com/api/webhooks/1509146664479359037/7v6UjwERZw6hpWzvLmPK2WZLUghMj-IfliDsezhOWCzd2MvcLm4aFf9vtp8sKVa2zZYs';
+const LOG_CHANNEL_ID = '1509146646414360616';
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds]
