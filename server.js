@@ -11,7 +11,7 @@ const fs = require('fs');
 const TOKEN = process.env.TOKEN;
 
 // PASTE YOUR APPLICATION ID HERE
-const CLIENT_ID = '1508813594924683384E';
+const CLIENT_ID = '1508813594924683384';
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds]
