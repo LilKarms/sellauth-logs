@@ -14,8 +14,8 @@ const TOKEN = process.env.TOKEN;
 // APPLICATION ID
 const CLIENT_ID = '1508813594924683384';
 
-// PUT YOUR LOGS CHANNEL ID HERE
-const LOG_CHANNEL_ID = '1509146646414360616';
+// LOGS CHANNEL ID
+const LOG_CHANNEL_ID = '1509146664479359037';
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds]
@@ -72,7 +72,7 @@ client.on('interactionCreate', async interaction => {
 
         const key = interaction.options.getString('key');
 
-        const logChannel = client.channels.cache.get(LOG_CHANNEL_ID);
+        const logChannel = await client.channels.fetch(LOG_CHANNEL_ID);
 
         // READ KEYS
         let keys = fs.readFileSync('./keys.txt', 'utf8')
@@ -80,14 +80,37 @@ client.on('interactionCreate', async interaction => {
             .map(k => k.trim())
             .filter(Boolean);
 
-        // INVALID KEY
+        // CREATE usedkeys.txt IF NOT EXIST
+        if (!fs.existsSync('./usedkeys.txt')) {
+            fs.writeFileSync('./usedkeys.txt', '');
+        }
+
+        let usedKeys = fs.readFileSync('./usedkeys.txt', 'utf8')
+            .split('\n')
+            .filter(Boolean);
+
+        // INVALID OR USED KEY
         if (!keys.includes(key)) {
+
+            let originalUser = 'Unknown';
+            let originalID = 'Unknown';
+
+            const found = usedKeys.find(line => line.startsWith(`${key}|`));
+
+            if (found) {
+
+                const parts = found.split('|');
+
+                originalUser = parts[1];
+                originalID = parts[2];
+
+            }
 
             const invalidEmbed = new EmbedBuilder()
                 .setTitle('❌ Invalid Redeem Attempt')
                 .addFields(
                     {
-                        name: 'Discord Username',
+                        name: 'User Trying',
                         value: interaction.user.tag
                     },
                     {
@@ -99,8 +122,16 @@ client.on('interactionCreate', async interaction => {
                         value: key
                     },
                     {
+                        name: 'Originally Redeemed By',
+                        value: originalUser
+                    },
+                    {
+                        name: 'Original Discord ID',
+                        value: originalID
+                    },
+                    {
                         name: 'Key Result',
-                        value: 'Invalid or Used'
+                        value: 'Invalid or Already Used'
                     }
                 )
                 .setThumbnail(interaction.user.displayAvatarURL())
@@ -121,6 +152,12 @@ client.on('interactionCreate', async interaction => {
         keys = keys.filter(k => k !== key);
 
         fs.writeFileSync('./keys.txt', keys.join('\n'));
+
+        // SAVE USED KEY INFO
+        fs.appendFileSync(
+            './usedkeys.txt',
+            `${key}|${interaction.user.tag}|${interaction.user.id}\n`
+        );
 
         // READ COMBO STOCK
         let combos = fs.readFileSync('./combo.txt', 'utf8')
@@ -151,7 +188,7 @@ client.on('interactionCreate', async interaction => {
         // CREATE TXT FILE
         fs.writeFileSync(filename, claimed.join('\n'));
 
-        // SUCCESS LOG
+        // SUCCESS EMBED
         const successEmbed = new EmbedBuilder()
             .setTitle('✅ New Redeem')
             .addFields(
